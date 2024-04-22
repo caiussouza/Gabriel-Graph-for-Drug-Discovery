@@ -3,16 +3,13 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
 import pandas as pd
-from sklearn.datasets import make_moons, make_circles, load_breast_cancer
 from scipy.spatial.distance import cdist
+from utils import sign
 
 
 class Gabriel_Graph:
     def __init__(self, X, y, index=None, dist_method="euclidean", palette="bright"):
-        """Gabriel Graph initializer. It builds a Gabriel Graph based on an input
-           matrix (X). It may also contains labels values (y) if working on supervised
-           learning. The distances between points are calculated based on changeable methods.
-
+        """Gabriel Graph initializer.
         Args:
             X (pd.DataFrame or np.ndarray): Input matrix (without labels!)
             y (pd.DataFrame or np.ndarray): Label vector.
@@ -22,7 +19,7 @@ class Gabriel_Graph:
         """
         assert isinstance(
             X, (pd.DataFrame, np.ndarray)
-        ), "X parameter is not a pandas DataFrame."
+        ), "X parameter is not a pandas DataFrame or numpy array."
         if type(X) == np.ndarray:
             X = pd.DataFrame(X)
         self.X = X
@@ -45,9 +42,40 @@ class Gabriel_Graph:
         assert isinstance(palette, str), "palette_default must be a string"
         self.palette_deft = sns.color_palette(palette)
 
-    def build_gabriel_graph(self):
+    def build_graph(self, wilson_editing=False, k=1):
+        """It builds a Gabriel Graph based on an input matrix (X).
+        It may also contain labels values (y) if working on supervised
+        learning. The distances between points are calculated based on input method.
 
-        # Distance matrix
+
+        Args:
+            wilson_editing (bool, optional): Implements a Wilson editing for noise reduction. Defaults to False. See more on: https://www.researchgate.net/profile/Ricardo-Vilalta/publication/4133603_Using_Representative-Based_Clustering_for_Nearest_Neighbor_Dataset_Editing/links/0f31753c55a8d611fc000000/Using-Representative-Based-Clustering-for-Nearest-Neighbor-Dataset-Editing.pdf?origin=publication_detail&_tp=eyJjb250ZXh0Ijp7ImZpcnN0UGFnZSI6Il9kaXJlY3QiLCJwYWdlIjoicHVibGljYXRpb25Eb3dubG9hZCIsInByZXZpb3VzUGFnZSI6InB1YmxpY2F0aW9uIn19
+            k (int, optional): k parameter for Wilson editing. Defaults to 1 (1-NN).
+
+        Returns:
+            nx.Graph: Gabriel Graph.
+        """
+
+        if wilson_editing:
+            self.y = 2 * (self.y == 1) - 1
+            D = cdist(self.X, self.X, metric=self.dist_method)
+            dist_vet = []
+            Vp = []
+
+            for i in range(len(D)):
+                dist_vet = D[i,]
+                dist_vet = np.delete(dist_vet, i)
+                idx_knn = np.argsort(dist_vet)[:k]
+                k_nearest_classes = self.y[idx_knn]
+                i_pred = sign(sum(k_nearest_classes))
+                if self.y[i] == i_pred:
+                    Vp.append(np.hstack((self.X.iloc[i,].values, self.y[i])))
+            Vp = pd.DataFrame(Vp)
+            self.X = Vp.iloc[:, :-1]
+            self.y = Vp.iloc[:, -1]
+            y_01_range = 1 * (self.y >= 0)
+            self.y = y_01_range
+
         D = cdist(self.X, self.X, metric=self.dist_method)
 
         GG = nx.Graph()
@@ -79,18 +107,32 @@ class Gabriel_Graph:
         self.node_ids = nx.get_node_attributes(GG, "id")
         return GG
 
-    def plot_2d_gg(self):
+    def plot(self, label=True):
+        """Plots a 2D graph if data is bidimensional.
+
+        Args:
+            label (bool, optional): Presence of labels. Defaults to True.
+        """
         nx.draw(
             self.GGraph,
             self.node_locations,
             node_color=self.node_colors,
             labels=self.node_ids,
-            with_labels=True,
+            with_labels=label,
         )
         plt.show()
 
     def adjacency_matrix(self, sparse=False):
+        """Adjacency matrix representation of the graph. Is useful for
+        for visualizing graphs with dimensions greater than 2 or 3.
 
+        Args:
+            sparse (bool, optional): If True returns a sparse matrix in scipy.
+            If False, returns a pandas DataFrame. Defaults to False.
+
+        Returns:
+            pandas DataFrame or scipy sparse matrix: Adjacency matrix.
+        """
         adj_mat = nx.adjacency_matrix(self.GGraph)
 
         if sparse:
