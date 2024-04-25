@@ -4,7 +4,7 @@ import seaborn as sns
 import numpy as np
 import pandas as pd
 from scipy.spatial.distance import cdist
-from utils import sign
+from core.utils import sign
 
 
 class Gabriel_Graph:
@@ -42,6 +42,8 @@ class Gabriel_Graph:
         assert isinstance(palette, str), "palette_default must be a string"
         self.palette_deft = sns.color_palette(palette)
 
+        self.centers = None
+
     def build_graph(self, wilson_editing=False, k=1):
         """It builds a Gabriel Graph based on an input matrix (X).
         It may also contain labels values (y) if working on supervised
@@ -64,12 +66,13 @@ class Gabriel_Graph:
 
             for i in range(len(D)):
                 dist_vet = D[i,]
-                dist_vet = np.delete(dist_vet, i)
-                idx_knn = np.argsort(dist_vet)[:k]
+                idx_knn = np.argsort(dist_vet)[: k + 1]
+                idx_knn = np.delete(idx_knn, 0)
                 k_nearest_classes = self.y[idx_knn]
                 i_pred = sign(sum(k_nearest_classes))
                 if self.y[i] == i_pred:
                     Vp.append(np.hstack((self.X.iloc[i,].values, self.y[i])))
+
             Vp = pd.DataFrame(Vp)
             self.X = Vp.iloc[:, :-1]
             self.y = Vp.iloc[:, -1]
@@ -105,18 +108,29 @@ class Gabriel_Graph:
         self.node_locations = nx.get_node_attributes(GG, "pos")
         self.node_colors = list(nx.get_node_attributes(GG, "color").values())
         self.node_ids = nx.get_node_attributes(GG, "id")
+
         return GG
 
-    def plot(self, label=True):
+    def plot(self, label=True, show_centers=False):
         """Plots a 2D graph if data is bidimensional.
 
         Args:
             label (bool, optional): Presence of labels. Defaults to True.
         """
+        if show_centers:
+            assert self.centers is not None, "Centers were not calculated yet."
+            color_aux_list = self.node_colors.copy()
+            for i in self.GGraph.nodes:
+                if i in self.centers.index:
+                    # color_aux_list[i] = 'gray' se quiser cinza
+                    rgb_val = list(color_aux_list[i])
+                    rgb_val[1] += 0.5
+                    color_aux_list[i] = rgb_val
+
         nx.draw(
             self.GGraph,
             self.node_locations,
-            node_color=self.node_colors,
+            node_color=color_aux_list if show_centers else self.node_colors,
             labels=self.node_ids,
             with_labels=label,
         )
@@ -140,3 +154,26 @@ class Gabriel_Graph:
         if not sparse:
             adj_mat = pd.DataFrame(adj_mat.toarray())
             return adj_mat
+
+    def get_centers(self):
+        edges = list(self.GGraph.edges())
+
+        node_pos = []
+        node_labels = []
+        for i in self.GGraph.nodes:
+            node_pos.append(self.GGraph.nodes[i]["pos"])
+            node_labels.append(self.GGraph.nodes[i]["label"])
+        node_pos = pd.DataFrame(node_pos)
+        node_labels = pd.DataFrame(node_labels)
+
+        centers = []
+        for i in range(len(edges)):
+            x1 = edges[i][0]
+            x2 = edges[i][1]
+            if self.GGraph.nodes[x1]["label"] != self.GGraph.nodes[x2]["label"]:
+                centers.append(node_pos.iloc[x1, :])
+                centers.append(node_pos.iloc[x2, :])
+        centers = pd.DataFrame(centers)
+        centers = centers.drop_duplicates()
+        self.centers = centers
+        return centers
